@@ -199,6 +199,14 @@ body{
   border:2px solid var(--deep);background:#fff;color:var(--ink);text-decoration:none;
   font-size:13.5px;font-weight:900;letter-spacing:-.02em}
 .macts a:active{background:var(--deep);color:var(--pale)}
+.navrow{display:flex;align-items:center;gap:6px;margin-top:10px;flex-wrap:wrap}
+.navlbl{font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:.06em;color:rgba(15,20,23,.45);margin-right:2px}
+.modebtn{flex:1;min-width:64px;min-height:38px;border:1px solid rgba(15,20,23,.2);background:#fff;
+  font:inherit;font-size:12.5px;font-weight:700;color:rgba(15,20,23,.6);cursor:pointer}
+.modebtn[aria-selected="true"]{background:var(--deep);color:var(--pale);border-color:var(--deep)}
+.locbtn{width:100%;min-height:42px;margin-top:8px;border:1px dashed rgba(15,20,23,.28);background:var(--p2);
+  font:inherit;font-size:12.5px;font-weight:700;color:rgba(15,20,23,.6);cursor:pointer}
+.locbtn.on{border-style:solid;border-color:var(--acc);color:var(--accD);background:#fff}
 :focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
@@ -356,6 +364,41 @@ $('#eatPane').querySelectorAll('.erow').forEach(b=>{
     map:'33.5900103,130.4180146',url:'https://www.jrk-hotels.co.jp/Hakatachuo/'},'#00789B');
 })();
 
+/* ---------- 길찾기 ---------- */
+// 렌터카가 있는 날(3·4·5)은 자동차, 없는 날은 도보/대중교통을 기본으로
+function defaultMode(){
+  const n = DATA.days[cur] ? DATA.days[cur].n : 1;
+  return (n >= 3) ? 'driving' : 'transit';
+}
+let myPos = null;   // 사용자가 허용하면 채워짐
+function navUrl(dest, name, mode){
+  const m = mode || defaultMode();
+  const p = new URLSearchParams({api:'1', destination:dest, travelmode:m});
+  if (name) p.set('destination_place_id_hint', '');
+  if (myPos) p.set('origin', myPos);
+  p.delete('destination_place_id_hint');
+  return 'https://www.google.com/maps/dir/?' + p.toString();
+}
+function askLocation(){
+  if(!navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      myPos = pos.coords.latitude.toFixed(6) + ',' + pos.coords.longitude.toFixed(6);
+      // 열려 있는 시트의 링크를 갱신
+      document.querySelectorAll('a[data-nav]').forEach(a => {
+        a.href = navUrl(a.dataset.nav, a.dataset.navname, a.dataset.mode);
+      });
+      const b = document.getElementById('locBtn');
+      if(b){ b.textContent = '현재 위치 사용 중'; b.classList.add('on'); }
+    },
+    () => {
+      const b = document.getElementById('locBtn');
+      if(b) b.textContent = '위치 권한이 꺼져 있습니다';
+    },
+    {enableHighAccuracy:true, timeout:8000, maximumAge:60000}
+  );
+}
+
 /* ---------- modal ---------- */
 const mwrap=$('#mwrap'), modal=$('#modal');
 function openStop(s, ac){
@@ -379,16 +422,44 @@ function openStop(s, ac){
     h+='<ul>'+s.menu.map(m=>'<li>'+m[0]+'<span>'+m[1]+'</span></li>').join('')+'</ul></div>';
   }
   const a=[];
-  if(s.map) a.push('<a href="https://maps.google.com/?q='+s.map+'" target="_blank" rel="noopener">길찾기</a>');
+  if(s.map) a.push('<a href="'+navUrl(s.map,s.name)+'" data-nav="'+s.map+'" data-navname="'+s.name.replace(/"/g,'')+'" target="_blank" rel="noopener">길찾기</a>');
   if(s.url) a.push('<a href="'+s.url+'" target="_blank" rel="noopener">공식</a>');
   if(s.tel) a.push('<a href="tel:'+s.tel.replace(/[^0-9+]/g,'')+'">전화</a>');
-  if(a.length) h+='<div class="macts">'+a.join('')+'</div>';
+  if(a.length){
+    h+='<div class="macts">'+a.join('')+'</div>';
+    if(s.map){
+      h+='<div class="navrow">'+
+         '<span class="navlbl">이동 수단</span>'+
+         '<button class="modebtn" data-m="driving">자동차</button>'+
+         '<button class="modebtn" data-m="transit">대중교통</button>'+
+         '<button class="modebtn" data-m="walking">도보</button>'+
+         '</div>'+
+         '<button class="locbtn" id="locBtn">'+(myPos?'현재 위치 사용 중':'현재 위치에서 출발')+'</button>';
+    }
+  }
   if(pics) h+='<p class="credit" style="margin:14px 0 0">사진 © GOOGLE · '+pics.length+'장</p>';
   h+='</div>';
   modal.innerHTML=h;
   mwrap.classList.add('on'); mwrap.scrollTop=0;
   document.body.style.overflow='hidden';
   $('#mx').onclick=closeModal;
+  const lb=$('#locBtn');
+  if(lb){ if(myPos) lb.classList.add('on'); lb.onclick=askLocation; }
+  const mb=modal.querySelectorAll('.modebtn');
+  if(mb.length){
+    const def=defaultMode();
+    mb.forEach(x=>{
+      if(x.dataset.m===def) x.setAttribute('aria-selected','true');
+      x.onclick=()=>{
+        mb.forEach(y=>y.setAttribute('aria-selected','false'));
+        x.setAttribute('aria-selected','true');
+        modal.querySelectorAll('a[data-nav]').forEach(a=>{
+          a.dataset.mode=x.dataset.m;
+          a.href=navUrl(a.dataset.nav,a.dataset.navname,x.dataset.m);
+        });
+      };
+    });
+  }
   const g=$('#mgal');
   if(g) g.querySelectorAll('button').forEach(b=>b.onclick=()=>{
     $('#hero').src=IMG[s.img][+b.dataset.i];
